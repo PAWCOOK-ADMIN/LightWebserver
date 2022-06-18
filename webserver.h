@@ -75,7 +75,8 @@ public:
     int m_CONNTrigmode;                 // 连接套接字的触发模式
 
     //定时器相关
-    client_data *users_timer;           // 管理所有客户端连接的定时器
-    Utils utils;
+    client_data *users_timer;           // 管理所有客户端连接的数据，定时器链表节点
+    Utils utils;                        // 定时器链表
 };
+
 #endif

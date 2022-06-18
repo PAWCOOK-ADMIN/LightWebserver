@@ -64,6 +64,9 @@ private:
 
     util_timer *head;               // 头结点
     util_timer *tail;               // 尾结点
+
+    int len;
+    int m_close_log;                        // 是否启用日志，, 0 表示不关闭（默认）
 };
 
 // 工具类，提供一些常用的功能函数
@@ -93,9 +96,9 @@ public:
 
 public:
     static int *u_pipefd;           // 管道
-    sort_timer_lst m_timer_lst;
+    sort_timer_lst m_timer_lst;     // 定时器链表
     static int u_epollfd;           // epoll 实例
-    int m_TIMESLOT;                 // 定时器的超时时间
+    int m_TIMESLOT;                 // 定时器的超时时间 
 };
 
 void cb_func(client_data *user_data);

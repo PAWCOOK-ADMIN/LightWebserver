@@ -185,8 +185,6 @@ void WebServer::adjust_timer(util_timer *timer) {
     time_t cur = time(NULL);                    // 获取当前事件
     timer->expire = cur + 3 * TIMESLOT;         // 推迟当前定时器的超时时间
     utils.m_timer_lst.adjust_timer(timer);
-
-    LOG_INFO("%s", "adjust timer once");
 }
 
 // 删除定时器
@@ -372,9 +370,6 @@ void WebServer::eventLoop()
 
         if (timeout) {                  // 只有在上一次的 SIGALARM 被捕捉后，才开始新一轮的倒计时，同时处理不活跃连接
             utils.timer_handler();
-
-            LOG_INFO("%s", "timer tick");
-
             timeout = false;
         }
     }
