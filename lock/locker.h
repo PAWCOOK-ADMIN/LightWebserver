@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <semaphore.h>
 
+
 // 该头文件保存了各种线程同步机制的封装类，实现 RAII 机制
 
 // 信号量
@@ -81,9 +82,17 @@ public:
         return ret == 0;
     }
 
-    bool timewait(pthread_mutex_t *m_mutex, struct timespec t) {
+    // 因为需要等待的时间是绝对时间，故此处包装了一下
+    bool timewait(pthread_mutex_t *m_mutex, int t) {
         int ret = 0;
-        ret = pthread_cond_timedwait(&m_cond, m_mutex, &t);
+
+        time_t now = time(nullptr);
+        timespec finaltime;
+
+        finaltime.tv_sec = now + t;
+        finaltime.tv_nsec = 0;
+        ret = pthread_cond_timedwait(&m_cond, m_mutex, &finaltime);
+        
         return ret == 0;
     }
 

@@ -4,12 +4,13 @@
 #include <stdarg.h>
 #include "log.h"
 #include <pthread.h>
+
 using namespace std;
 
-Log::Log() 
+Log::Log()
 {
     m_count = 0;
-    m_is_async = false;
+    m_is_async = false;     // 异步写标志关闭
 }
 
 Log::~Log()
@@ -18,33 +19,22 @@ Log::~Log()
         fclose(m_fp);
 }
 
-// 异步需要设置阻塞队列的长度，同步不需要设置
 // file_name：./ServerLog
 // log_buf_size：日志缓冲区大小，2000
 // split_lines：日志最大行数，800000
-bool Log::init(const char *file_name, int close_log, int log_buf_size, int split_lines, int max_queue_size)
-{
-    // 如果设置了max_queue_size, 则说明日志的写入方式为异步
-    if (max_queue_size >= 1) {
-        m_is_async = true;                                          // 日志系统中的异步标志设为 true
-        m_log_queue = new block_queue<string>(max_queue_size);      // 日志系统前后端数据传输的日志缓冲队列
-        
-        pthread_t tid;
-        // flush_log_thread 为线程的主函数, 这里表示创建线程异步写日志
-        pthread_create(&tid, NULL, flush_log_thread, NULL);         // 创建日志系统的后端线程，负责将缓冲队列的数据写入磁盘日志文件中
-    }
-    
+bool Log::init(const char *file_name, int close_log, int log_buf_size, int split_lines, int m_log_write)
+{  
     m_close_log = close_log;                    // 是否关闭日志
-    m_log_buf_size = log_buf_size;              // 日志缓冲区大小
+    m_log_buf_size = log_buf_size;              // 单条日志的缓冲区大小
     m_buf = new char[m_log_buf_size];           // 初始化日志缓冲区
     memset(m_buf, 0, m_log_buf_size);
-    m_split_lines = split_lines;                // 日志最大行数
+
+    m_split_lines = split_lines;                // 日志文件最大行数
 
     time_t t = time(NULL);                      // 获取当前日历时间
     struct tm *sys_tm = localtime(&t);          // 使用 time_t 来填充 tm 结构
     struct tm my_tm = *sys_tm;
 
- 
     const char *p = strrchr(file_name, '/');    // 搜索 '/' 最后一次出现的位置
     char log_full_name[256] = {0};              // 完整日志文件名
 
@@ -57,11 +47,22 @@ bool Log::init(const char *file_name, int close_log, int log_buf_size, int split
         snprintf(log_full_name, 255, "%s%d_%02d_%02d_%s", dir_name, my_tm.tm_year + 1900, my_tm.tm_mon + 1, my_tm.tm_mday, log_name);       // ./2022_06_16_ServerLog
     }
 
-    m_today = my_tm.tm_mday;                // 记录当前时间
+    // 记录当前时间
+    m_today = my_tm.tm_mday;               
     
-    m_fp = fopen(log_full_name, "a");       // 打开日志文件，如果不存在则创建
+    // 打开日志文件，如果不存在则创建
+    m_fp = fopen(log_full_name, "a");       
     if (m_fp == NULL)
         return false;
+
+    // 如果日志的写入方式为异步，则初始化双缓冲系统
+    if (m_log_write == 1) {
+        m_is_async = true;                                      // 日志系统中的异步标志设为 true
+        
+        double_buffer &tmp = double_buffer::getinstance();                           // 获取双缓冲系统实例
+        tmp.setfp(m_fp);                                   // 设置双缓冲系统的目标日志文件
+        tmp.init();                                        // 为双缓冲系统启动后端写日志线程
+    }
 
     return true;
 }
@@ -101,7 +102,8 @@ void Log::write_log(int level, const char *format, ...)
     m_mutex.lock();
     m_count++;          // 行数增1
 
-    if (m_today != my_tm.tm_mday || m_count % m_split_lines == 0) {       // 如果日志系统保存的日期落后于当日，或者日志文件已经写的行数已达最大
+    // 如果日志系统保存的日期落后于当日，或者日志文件已经写的行数已达最大
+    if (m_today != my_tm.tm_mday || m_count % m_split_lines == 0) {       
         char new_log[256] = {0};
         fflush(m_fp);               // 刷新日志系统当前写的日志文件
         fclose(m_fp);               // 关闭当前写的日志文件
@@ -120,6 +122,8 @@ void Log::write_log(int level, const char *format, ...)
         
         // 打开新的日志文件
         m_fp = fopen(new_log, "a");
+        if (m_is_async)
+            double_buffer::getinstance().setfp(m_fp);
     }
  
     m_mutex.unlock();
@@ -131,10 +135,8 @@ void Log::write_log(int level, const char *format, ...)
     m_mutex.lock();
 
     // 构造一条日志
-    int n = snprintf(m_buf, 48, "%d-%02d-%02d %02d:%02d:%02d.%06ld %s ",
-                     my_tm.tm_year + 1900, my_tm.tm_mon + 1, my_tm.tm_mday,
-                     my_tm.tm_hour, my_tm.tm_min, my_tm.tm_sec, now.tv_usec, s);
-    
+    int n = snprintf(m_buf, 48, "%d-%02d-%02d %02d:%02d:%02d.%06ld %s ", my_tm.tm_year + 1900, my_tm.tm_mon + 1, 
+                                        my_tm.tm_mday, my_tm.tm_hour, my_tm.tm_min, my_tm.tm_sec, now.tv_usec, s);
     int m = vsnprintf(m_buf + n, m_log_buf_size - 1, format, valst);
     m_buf[n + m] = '\n';
     m_buf[n + m + 1] = '\0';
@@ -142,9 +144,9 @@ void Log::write_log(int level, const char *format, ...)
 
     m_mutex.unlock();
 
-    if (m_is_async && !m_log_queue->full())
-        m_log_queue->push(log_str);
-    else {
+    if (m_is_async)                 // 异步写
+        double_buffer::getinstance().push(log_str);
+    else {                          // 同步写
         m_mutex.lock();
         fputs(log_str.c_str(), m_fp);
         m_mutex.unlock();

@@ -46,7 +46,7 @@ public:
 public:
     int m_port;             // 服务器的端口
     char *m_root;           // root 文件夹路径
-    int m_log_write;        // 日志写入方式（同步还是异步）
+    int m_log_write;        // 日志写入方式（同步还是异步，0 标识同步，1 表示异步）
     int m_close_log;        // 是否关闭日志系统, 0 表示不关闭（默认）
     int m_actormodel;       // 事件处理模型选择，1 为 reactor，0 为 proactor 
 

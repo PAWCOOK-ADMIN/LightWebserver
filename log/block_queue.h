@@ -176,10 +176,10 @@ public:
         if (m_size <= 0) {
             t.tv_sec = now.tv_sec + ms_timeout / 1000;          // 当前时间 + 等待时间 = 到期时间
             t.tv_nsec = (ms_timeout % 1000) * 1000;
-            if (!m_cond.timewait(m_mutex.get(), t)) {
-                m_mutex.unlock();
-                return false;
-            }
+            // if (!m_cond.timewait(m_mutex.get(), t)) {
+            //     m_mutex.unlock();
+            //     return false;
+            // }
         }
 
         if (m_size <= 0) {
