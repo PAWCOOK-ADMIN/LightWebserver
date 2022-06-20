@@ -69,12 +69,8 @@ void double_buffer::d_buffer_write() {
         cur = new1;
         new1 = nullptr;
 
-        //cout << "frontbuffer: " << front_buffers.size() << endl;
         // 交换前后端缓冲区数组
         back_buffers.swap(front_buffers);
-
-        //cout << "frontbuffer: " << front_buffers.size() << endl;
-        //cout << "backbuffer: " << back_buffers.size() << endl;
         
         if (!next) {
             next = new2;
