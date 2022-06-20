@@ -5,8 +5,8 @@ Config::Config(){
     // 端口号, 默认10000
     PORT = 10001;
 
-    // 日志写入方式，默认同步
-    LOGWrite = 0;
+    // 日志写入方式，默认异步
+    LOGWrite = 1;
 
     // 触发组合模式, 默认 listenfd LT + connfd LT
     TRIGMode = 0;

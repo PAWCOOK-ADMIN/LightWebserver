@@ -71,15 +71,10 @@ void WebServer::trig_mode()
     }
 }
 
-// 初始化日志系统
+// 创建日志系统，并初始化
 void WebServer::log_write() {
-    if (0 == m_close_log) {
-        // 初始化日志
-        if (1 == m_log_write)       
-            Log::get_instance()->init("./ServerLog", m_close_log, 2000, 800000, 800);       // 异步
-        else
-            Log::get_instance()->init("./ServerLog", m_close_log, 2000, 800000, 0);         // 同步
-    }
+    if (0 == m_close_log) 
+        Log::get_instance()->init("./ServerLog", m_close_log, 2000, 800000, m_log_write);
 }
 
 // 创建并初始化数据库连接池
