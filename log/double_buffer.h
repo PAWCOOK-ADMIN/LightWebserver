@@ -20,7 +20,8 @@ class double_buffer {
     
     bool stop;              // 后端写日志线程运行标志 
     
-    locker m_mutex;         // 互斥量
+    locker m_mutex;         // 互斥量， 同步缓冲区
+    locker fd_mutex;        // 互斥量， 同步缓冲区
     cond m_cond;            // 条件变量
     FILE *fp;               // 打开的日志文件描述符
 

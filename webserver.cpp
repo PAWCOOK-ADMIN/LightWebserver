@@ -127,7 +127,7 @@ void WebServer::eventListen() {
     assert(ret >= 0);
 
     // 初始化定时器的超时时间
-    utils.init(TIMESLOT);
+    utils.init(TIMESLOT, m_close_log);
 
     // 创建 epoll 实例
     epoll_event events[MAX_EVENT_NUMBER];
@@ -164,29 +164,25 @@ void WebServer::timer(int connfd, struct sockaddr_in client_address) {
     users_timer[connfd].address = client_address;
     users_timer[connfd].sockfd = connfd;
 
-    util_timer *timer = new util_timer;
+    tw_timer *timer = utils.m_time_wheel.add_timer(3 * TIMESLOT);
     timer->user_data = &users_timer[connfd];
     timer->cb_func = cb_func;                       // 初始化定时器超时处理函数
     
-    time_t cur = time(NULL);
-    timer->expire = cur + 3 * TIMESLOT;             // 设置超时时间
     users_timer[connfd].timer = timer;
-    utils.m_timer_lst.add_timer(timer);             // 将定时器加入定时器升序链表
+
 }
 
 // 若有数据传输，则将定时器往后延迟 3 个单位
 // 并对新的定时器在链表上的位置进行调整
-void WebServer::adjust_timer(util_timer *timer) {
-    time_t cur = time(NULL);                    // 获取当前事件
-    timer->expire = cur + 3 * TIMESLOT;         // 推迟当前定时器的超时时间
-    utils.m_timer_lst.adjust_timer(timer);
+void WebServer::adjust_timer(tw_timer *timer) {
+    utils.m_time_wheel.adjust_timer(timer);
 }
 
 // 删除定时器
-void WebServer::deal_timer(util_timer *timer, int sockfd) {
+void WebServer::deal_timer(tw_timer *timer, int sockfd) {
     timer->cb_func(&users_timer[sockfd]);                       // 先调用超时处理函数（作用关闭 TCP 连接）
     if (timer)
-        utils.m_timer_lst.del_timer(timer);                     // 再从定时器链表中删除定时器
+        utils.m_time_wheel.del_timer(timer);                     // 再从定时器链表中删除定时器
 
     LOG_INFO("close fd %d", users_timer[sockfd].sockfd);
 }
@@ -211,7 +207,7 @@ bool WebServer::dealclinetdata() {
         timer(connfd, client_address);          // 通过连接套接字创建一个 htppconn 对象，同时为客户端连接创建一个定时器
     }
 
-    else {                                  // 如果监听套接字是边缘触发模式, 则必须一直读监听套接字，直到没有数据可读
+    else {                                      // 如果监听套接字是边缘触发模式, 则必须一直读监听套接字，直到没有数据可读
         while (1) {
             int connfd = accept(m_listenfd, (struct sockaddr *)&client_address, &client_addrlength);
             if (connfd < 0) {
@@ -259,7 +255,7 @@ bool WebServer::dealwithsignal(bool &timeout, bool &stop_server) {
 }
 
 void WebServer::dealwithread(int sockfd) {
-    util_timer *timer = users_timer[sockfd].timer;
+    tw_timer *timer = users_timer[sockfd].timer;
 
     if (1 == m_actormodel) {                // reactor，事件处理模型，主线程不读连接套接字，只是把连接套接字包装成任务，插入线程池中的任务队列中
         if (timer)
@@ -281,7 +277,7 @@ void WebServer::dealwithread(int sockfd) {
     }
     else {                                  // 模拟的 proactor，事件处理模型，主线程读连接套接字，再把数据和连接套接字包装成任务，插入线程池中的任务队列中
         if (users[sockfd].read_once()) {
-            LOG_INFO("deal with the client(%s)", inet_ntoa(users[sockfd].get_address()->sin_addr));
+            LOG_INFO("deal with the client(%s)", inet_ntoa(users[sockfd].get_address()->sin_addr));         // 开始读连接套接字
 
             //若监测到读事件，将该事件放入请求队列
             m_pool->append_p(users + sockfd);
@@ -295,7 +291,7 @@ void WebServer::dealwithread(int sockfd) {
 }
 
 void WebServer::dealwithwrite(int sockfd){
-    util_timer *timer = users_timer[sockfd].timer;
+    tw_timer *timer = users_timer[sockfd].timer;
     
 
     if (1 == m_actormodel) {        // reactor 事件处理模式
@@ -316,13 +312,13 @@ void WebServer::dealwithwrite(int sockfd){
         }
     }
     else {                          // proactor 事件处理模式
-        if (users[sockfd].write()) {            // 写数据
+        if (users[sockfd].write()) {            // 写数据成功
             LOG_INFO("send data to the client(%s)", inet_ntoa(users[sockfd].get_address()->sin_addr));
             if (timer)
-                adjust_timer(timer);            // 重置连接套接字定时器
+                adjust_timer(timer);                    // 重置连接套接字定时器
         }
-        else
-            deal_timer(timer, sockfd);          // 删除连接套接字定时器
+        else                                    // 写数据失败
+            deal_timer(timer, sockfd);                  // 删除连接套接字定时器
     }
 }
 
@@ -349,7 +345,7 @@ void WebServer::eventLoop()
                     continue;
             }
             else if (events[i].events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR)) {               // EPOLLHUP：挂断    EPOLLRDHUP：对端套接字关闭    EPOLLERR：有错误发生 
-                util_timer *timer = users_timer[sockfd].timer;
+                tw_timer *timer = users_timer[sockfd].timer;
                 deal_timer(timer, sockfd);
             }
             else if ((sockfd == m_pipefd[0]) && (events[i].events & EPOLLIN)) {             // 管道文件描述符可读，说明有信号等待处理

@@ -3,7 +3,7 @@
 #include <mysql/mysql.h>
 #include <fstream>
 
-//定义 http 响应的一些状态信息
+//定义 http 响应报文中的原因短语
 const char *ok_200_title = "OK";
 const char *error_400_title = "Bad Request";
 const char *error_400_form = "Your request has bad syntax or is inherently impossible to staisfy.\n";
@@ -36,6 +36,11 @@ void http_conn::initmysql_result(connection_pool *connPool)
         string temp1(row[0]);
         string temp2(row[1]);
         users[temp1] = temp2;
+    }
+
+    // 将信息输出出来，因为调试不方便查看信息
+    for (auto user : users) {
+        cout << "用户名: " << user.first << "\t\t" << "密码：" << user.second << endl; 
     }
 }
 
@@ -80,9 +85,9 @@ void modfd(int epollfd, int fd, int ev, int TRIGMode)
     event.data.fd = fd;
 
     if (1 == TRIGMode)
-        event.events = ev | EPOLLET | EPOLLONESHOT | EPOLLRDHUP;
+        event.events = ev | EPOLLET | EPOLLONESHOT | EPOLLRDHUP;        // 边缘触发
     else
-        event.events = ev | EPOLLONESHOT | EPOLLRDHUP;
+        event.events = ev | EPOLLONESHOT | EPOLLRDHUP;                  // 水平触发，整个套接字上的读写事件只触发一次
 
     epoll_ctl(epollfd, EPOLL_CTL_MOD, fd, &event);
 }
@@ -163,22 +168,18 @@ http_conn::LINE_STATUS http_conn::parse_line()
     for (; m_checked_idx < m_read_idx; ++m_checked_idx)
     {
         temp = m_read_buf[m_checked_idx];
-        if (temp == '\r')
-        {
-            if ((m_checked_idx + 1) == m_read_idx)
+        if (temp == '\r') {
+            if ((m_checked_idx + 1) == m_read_idx)                      // 如果读缓冲区的数据末尾中只有一个 \r，则行数据不完整
                 return LINE_OPEN;
-            else if (m_read_buf[m_checked_idx + 1] == '\n')
-            {
+            else if (m_read_buf[m_checked_idx + 1] == '\n') {           // 如果解析到 \r\n, 则将它们替换为 \0
                 m_read_buf[m_checked_idx++] = '\0';
                 m_read_buf[m_checked_idx++] = '\0';
                 return LINE_OK;
             }
-            return LINE_BAD;
+            return LINE_BAD;                                            // 如果读缓冲区中只有一个 \r，则行出错
         }
-        else if (temp == '\n')
-        {
-            if (m_checked_idx > 1 && m_read_buf[m_checked_idx - 1] == '\r')
-            {
+        else if (temp == '\n') {
+            if (m_checked_idx > 1 && m_read_buf[m_checked_idx - 1] == '\r') {             // 这种情况会出现吗
                 m_read_buf[m_checked_idx - 1] = '\0';
                 m_read_buf[m_checked_idx++] = '\0';
                 return LINE_OK;
@@ -228,94 +229,97 @@ bool http_conn::read_once()
 //解析http请求行，获得请求方法，目标url及http版本号
 http_conn::HTTP_CODE http_conn::parse_request_line(char *text)
 {
-    m_url = strpbrk(text, " \t");
+    // GET /index.html HTTP/1.1
+    m_url = strpbrk(text, " \t");           // 在字符串中搜索 “ \t” 中的某个字符，返回首次出现的指针
+
     if (!m_url)
-    {
-        return BAD_REQUEST;
-    }
-    *m_url++ = '\0';
+        return BAD_REQUEST;  
+
+    // GET\0/index.html HTTP/1.1
+    *m_url++ = '\0';                        // 置位空字符，字符串结束符
     char *method = text;
-    if (strcasecmp(method, "GET") == 0)
+
+    if (strcasecmp(method, "GET") == 0)         // 忽略大小写比较
         m_method = GET;
-    else if (strcasecmp(method, "POST") == 0)
-    {
-        m_method = POST;
+    else if (strcasecmp(method, "POST") == 0) {
+        m_method = POST;                    
         cgi = 1;
     }
     else
         return BAD_REQUEST;
-    m_url += strspn(m_url, " \t");
+
+    // /index.html HTTP/1.1
+    // 检索字符串 str1 中第一个不在字符串 str2 中出现的字符下标。
+    m_url += strspn(m_url, " \t");              // 在字符串中搜索 “ \t” 中的某个字符，返回首次出现的指针
+
     m_version = strpbrk(m_url, " \t");
     if (!m_version)
         return BAD_REQUEST;
+
     *m_version++ = '\0';
     m_version += strspn(m_version, " \t");
+
     if (strcasecmp(m_version, "HTTP/1.1") != 0)
         return BAD_REQUEST;
-    if (strncasecmp(m_url, "http://", 7) == 0)
-    {
+    if (strncasecmp(m_url, "http://", 7) == 0) {
         m_url += 7;
         m_url = strchr(m_url, '/');
     }
 
-    if (strncasecmp(m_url, "https://", 8) == 0)
-    {
+    if (strncasecmp(m_url, "https://", 8) == 0) {
         m_url += 8;
         m_url = strchr(m_url, '/');
     }
 
     if (!m_url || m_url[0] != '/')
         return BAD_REQUEST;
-    //当url为/时，显示判断界面
-    if (strlen(m_url) == 1)
+    
+    // 到这一步，url 和 version 都已经处理好了
+
+    if (strlen(m_url) == 1)                 //当 url 为 / 时，显示判断界面 judge.html
         strcat(m_url, "judge.html");
     m_check_state = CHECK_STATE_HEADER;
     return NO_REQUEST;
 }
 
-//解析http请求的一个头部信息
+// 解析HTTP请求的一个首部信息
 http_conn::HTTP_CODE http_conn::parse_headers(char *text)
 {
-    if (text[0] == '\0')
-    {
-        if (m_content_length != 0)
-        {
-            m_check_state = CHECK_STATE_CONTENT;
+    // 遇到空行，表示首部字段解析完毕
+    if (text[0] == '\0') {  
+        if (m_content_length != 0) {                 // 如果HTTP请求有消息体，则还需要读取m_content_length字节的消息体，状态机转移到CHECK_STATE_CONTENT状态
+            m_check_state = CHECK_STATE_CONTENT;        
             return NO_REQUEST;
         }
-        return GET_REQUEST;
+        return GET_REQUEST;                          // 否则说明我们已经得到了一个完整的HTTP请求
     }
-    else if (strncasecmp(text, "Connection:", 11) == 0)
-    {
+    // 处理Connection 头部字段  Connection: keep-alive
+    else if (strncasecmp(text, "Connection:", 11) == 0) {
         text += 11;
         text += strspn(text, " \t");
         if (strcasecmp(text, "keep-alive") == 0)
-        {
             m_linger = true;
-        }
     }
-    else if (strncasecmp(text, "Content-length:", 15) == 0)
-    {
+    // 处理Content-Length头部字段
+    else if (strncasecmp(text, "Content-length:", 15) == 0) {
         text += 15;
         text += strspn(text, " \t");
         m_content_length = atol(text);
     }
-    else if (strncasecmp(text, "Host:", 5) == 0)
-    {
+    // 处理Host头部字段
+    else if (strncasecmp(text, "Host:", 5) == 0) {
         text += 5;
         text += strspn(text, " \t");
         m_host = text;
     }
     else
-    {
-        LOG_INFO("oop!unknow header: %s", text);
-    }
+        LOG_INFO("oop!unknow header: %s", text);            // 如果解析到位置的首部字段
     return NO_REQUEST;
 }
 
-// 判断 http 请求是否被完整读入
+// 解析 http 报文主体
 http_conn::HTTP_CODE http_conn::parse_content(char *text) {
-    if (m_read_idx >= (m_content_length + m_checked_idx)) {
+    if (m_read_idx >= (m_content_length + m_checked_idx)) {         // 如果请求报文并未超过读缓冲区的大小
         text[m_content_length] = '\0';
         m_string = text;                    // POST 请求中最后为输入的用户名和密码
         return GET_REQUEST;
@@ -323,47 +327,44 @@ http_conn::HTTP_CODE http_conn::parse_content(char *text) {
     return NO_REQUEST;
 }
 
+// 主状态机，解析 HTTP 请求，将请求的目标文件进行内存映射
 http_conn::HTTP_CODE http_conn::process_read()
 {
     LINE_STATUS line_status = LINE_OK;
     HTTP_CODE ret = NO_REQUEST;
     char *text = 0;
 
-    while ((m_check_state == CHECK_STATE_CONTENT && line_status == LINE_OK) || ((line_status = parse_line()) == LINE_OK))
-    {
-        text = get_line();
-        m_start_line = m_checked_idx;
-        LOG_INFO("%s", text);
-        switch (m_check_state)
-        {
-        case CHECK_STATE_REQUESTLINE:
-        {
-            ret = parse_request_line(text);
-            if (ret == BAD_REQUEST)
-                return BAD_REQUEST;
-            break;
-        }
-        case CHECK_STATE_HEADER:
-        {
-            ret = parse_headers(text);
-            if (ret == BAD_REQUEST)
-                return BAD_REQUEST;
-            else if (ret == GET_REQUEST)
-            {
-                return do_request();
+    // 如果当前主状态机的状态是解析报文主体且上一次读取到一个完整的行
+    // 如果本次能读取到一个完整的行
+    while ((m_check_state == CHECK_STATE_CONTENT && line_status == LINE_OK) || ((line_status = parse_line()) == LINE_OK)) {
+        text = get_line();                              // 获取一行数据
+        m_start_line = m_checked_idx;                   // 设置下一行的起始位置
+        LOG_INFO("%s", text);                                   // 将从连接套接字的读缓冲上解析到的每一行以日志的形式记录下来 
+
+        switch (m_check_state) {
+            case CHECK_STATE_REQUESTLINE: {             // 如果当前正在解析请求行
+                ret = parse_request_line(text);
+                if (ret == BAD_REQUEST)
+                    return BAD_REQUEST;
+                break;
             }
-            break;
-        }
-        case CHECK_STATE_CONTENT:
-        {
-            ret = parse_content(text);
-            if (ret == GET_REQUEST)
-                return do_request();
-            line_status = LINE_OPEN;
-            break;
-        }
-        default:
-            return INTERNAL_ERROR;
+            case CHECK_STATE_HEADER: {                  // 如果当前正在解析首部字段
+                ret = parse_headers(text);
+                if (ret == BAD_REQUEST)
+                    return BAD_REQUEST;
+                else if (ret == GET_REQUEST)
+                    return do_request();                            // 解析完首部字段且报文主体为空，则直接开始处理本次 HTTP 请求 
+                break;
+            }
+            case CHECK_STATE_CONTENT: {                 // 如果当前正在解析报文主体
+                ret = parse_content(text);
+                if (ret == GET_REQUEST)
+                    return do_request();                            // 解析到了报文主体后，开始处理本次 HTTP 请求 
+                line_status = LINE_OPEN;
+                break;
+            }
+            default:
+                return INTERNAL_ERROR;
         }
     }
     return NO_REQUEST;
@@ -373,71 +374,72 @@ http_conn::HTTP_CODE http_conn::process_read()
 // 则使用 mmap 将其映射到内存地址 m_file_address 处，并告诉调用者获取文件成功
 http_conn::HTTP_CODE http_conn::do_request()
 {
+    // "/home/nowcoder/LightWebserver/root"
     strcpy(m_real_file, doc_root);
     int len = strlen(doc_root);
-    //printf("m_url:%s\n", m_url);
     const char *p = strrchr(m_url, '/');
 
-    //处理cgi
+    // 当接受到的是表单提交的情况，即登录或者注册，将发送请求这样的（http://172.30.86.168:10001/3CGISQL.cgi）url
     if (cgi == 1 && (*(p + 1) == '2' || *(p + 1) == '3')) {
 
         //根据标志判断是登录检测还是注册检测
-        char flag = m_url[1];
+        char flag = m_url[1];                   // m_url: /3CGISQL.cgi 或者 /2CGISQL.cgi
 
         char *m_url_real = (char *)malloc(sizeof(char) * 200);
-        strcpy(m_url_real, "/");
-        strcat(m_url_real, m_url + 2);
-        strncpy(m_real_file + len, m_url_real, FILENAME_LEN - len - 1);
+        strcpy(m_url_real, "/");                // 添加 '/'
+        strcat(m_url_real, m_url + 2);          // `/CGISQL.cgi`
+        strncpy(m_real_file + len, m_url_real, FILENAME_LEN - len - 1);       // "/home/nowcoder/LightWebserver/root/CGISQL.cgi"，
         free(m_url_real);
 
-        //将用户名和密码提取出来
-        //user=123&passwd=123
+        //将用户名和密码提取出来，形式 user=123&password=123
         char name[100], password[100];
         int i;
-        for (i = 5; m_string[i] != '&'; ++i)                //以&为分隔符，前面的为用户名
+        for (i = 5; m_string[i] != '&'; ++i)                // 取出用户名，以&为分隔符，前面的为用户名
             name[i - 5] = m_string[i];
         name[i - 5] = '\0';
 
         int j = 0;
-        for (i = i + 10; m_string[i] != '\0'; ++i, ++j)     //以&为分隔符，后面的是密码
+        for (i = i + 10; m_string[i] != '\0'; ++i, ++j)     // 取出密码，以&为分隔符，后面的是密码
             password[j] = m_string[i];
         password[j] = '\0';
 
+        // 如果是注册
         if (*(p + 1) == '3') {
-            // 如果是注册，先检测数据库中是否有重名的
-            // 没有重名的，进行增加数据
+
+            // 构造 sql 插入语句
             char *sql_insert = (char *)malloc(sizeof(char) * 200);
-            strcpy(sql_insert, "INSERT INTO user(username, passwd) VALUES(");
+            strcpy(sql_insert, "INSERT INTO client(name, passward) VALUES(");
             strcat(sql_insert, "'");
             strcat(sql_insert, name);
             strcat(sql_insert, "', '");
             strcat(sql_insert, password);
             strcat(sql_insert, "')");
 
-            if (users.find(name) == users.end()) {
+            // 先检测数据库中是否有重名的
+            if (users.find(name) == users.end()) {                      // 如果没有重名的，进行增加数据
                 m_lock.lock();
                 int res = mysql_query(mysql, sql_insert);
                 users.insert(pair<string, string>(name, password));
                 m_lock.unlock();
 
-                if (!res)
+                if (!res)                                               // 如果注册成功，则返回到登录页面
                     strcpy(m_url, "/log.html");
                 else
                     strcpy(m_url, "/registerError.html");
             }
-            else
+            else                                                        // 如果有重名的
                 strcpy(m_url, "/registerError.html");
         }
         //如果是登录，直接判断
-        //若浏览器端输入的用户名和密码在表中可以查找到，返回1，否则返回0
         else if (*(p + 1) == '2') {
-            if (users.find(name) != users.end() && users[name] == password)
+            if (users.find(name) != users.end() && users[name] == password)        // 若浏览器端输入的用户名和密码在表中可以查找到，返回1，否则返回0
                 strcpy(m_url, "/welcome.html");
             else
                 strcpy(m_url, "/logError.html");
         }
     }
 
+    // judge.html 有两个按钮，点击注册按钮时会发送一个请求 /0 的请求 
     if (*(p + 1) == '0') {
         char *m_url_real = (char *)malloc(sizeof(char) * 200);
         strcpy(m_url_real, "/register.html");
@@ -445,6 +447,7 @@ http_conn::HTTP_CODE http_conn::do_request()
 
         free(m_url_real);
     }
+    // judge.html 有两个按钮，点击登录按钮时会发送一个请求 /1 的请求
     else if (*(p + 1) == '1') {
         char *m_url_real = (char *)malloc(sizeof(char) * 200);
         strcpy(m_url_real, "/log.html");
@@ -466,28 +469,30 @@ http_conn::HTTP_CODE http_conn::do_request()
 
         free(m_url_real);
     }
-    else if (*(p + 1) == '7') {
-        char *m_url_real = (char *)malloc(sizeof(char) * 200);
-        strcpy(m_url_real, "/fans.html");
-        strncpy(m_real_file + len, m_url_real, strlen(m_url_real));
-
-        free(m_url_real);
-    }
     else
         strncpy(m_real_file + len, m_url, FILENAME_LEN - len - 1);
 
+    // 获取m_request_path文件的相关的状态信息，-1 失败，0 成功
     if (stat(m_real_file, &m_file_stat) < 0)
         return NO_RESOURCE;
 
-    if (!(m_file_stat.st_mode & S_IROTH))
+    // 判断访问权限
+    if (!(m_file_stat.st_mode & S_IROTH))       // 判断服务器线程是否有权限访问文件
         return FORBIDDEN_REQUEST;
 
+    // 判断是否是目录
     if (S_ISDIR(m_file_stat.st_mode))
         return BAD_REQUEST;
 
+    // 以只读方式打开文件
     int fd = open(m_real_file, O_RDONLY);
+
+    // 创建私有文件映射
     m_file_address = (char *)mmap(0, m_file_stat.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+
+    // 关闭文件
     close(fd);
+
     return FILE_REQUEST;
 }
 
@@ -500,7 +505,7 @@ void http_conn::unmap()
     }
 }
 
-// 向客户端发送 HTTP 响应
+// 向客户端 socket 发送 HTTP 响应
 bool http_conn::write()
 {
     int temp = 0;
@@ -522,7 +527,7 @@ bool http_conn::write()
                 return true;
             }
             else {
-                unmap();
+                unmap();               
                 return false;
             }
         }
@@ -573,12 +578,12 @@ bool http_conn::add_response(const char *format, ...)
     m_write_idx += len;
     va_end(arg_list);                       // 将指针清零
 
-    LOG_INFO("request:%s", m_write_buf);
+    LOG_INFO("request:%s", m_write_buf);    // 将要发送的响应报文以日志的形式构造出来
 
     return true;
 }
 
-// 为 HTTP 响应报文添加状态行
+// 为 HTTP 响应报文添加状态行，status：状态码，title：原因短语
 bool http_conn::add_status_line(int status, const char *title) {
     return add_response("%s %d %s\r\n", "HTTP/1.1", status, title);
 }
@@ -616,31 +621,31 @@ bool http_conn::add_content(const char *content) {
 // 根据服务器处理 HTTP 请求的结果，决定返回给客户端的内容
 bool http_conn::process_write(HTTP_CODE ret) {
     switch (ret) {
-        case INTERNAL_ERROR: {
+        case INTERNAL_ERROR: {          // 基本上不会出现这种情况，因为代码中只有在解析请求报文时，主状态机的状态在三种状态之外才会返回该错误，但是项目中没有将主状态机的状态设置错误的代码
             add_status_line(500, error_500_title);
             add_headers(strlen(error_500_form));
             if (!add_content(error_500_form))
                 return false;
             break;
         }
-        case BAD_REQUEST: {
+        case BAD_REQUEST: {             // 客户端请求语法错误，如请求行的请求方法不是 get或post，请求行没有版本号
             add_status_line(404, error_404_title);
             add_headers(strlen(error_404_form));
             if (!add_content(error_404_form))
                 return false;
             break;
         }
-        case FORBIDDEN_REQUEST: {
+        case FORBIDDEN_REQUEST: {       // 客户端没有足够的权限访问
             add_status_line(403, error_403_title);
             add_headers(strlen(error_403_form));
             if (!add_content(error_403_form))
                 return false;
             break;
         }
-        case FILE_REQUEST: {
-            add_status_line(200, ok_200_title);
-            if (m_file_stat.st_size != 0) {
-                add_headers(m_file_stat.st_size);
+        case FILE_REQUEST: {            // 请求成功，返回目标文件
+            add_status_line(200, ok_200_title);             // 添加状态行
+            if (m_file_stat.st_size != 0) {                 // 如果请求的目标文件的大小不等于 0
+                add_headers(m_file_stat.st_size);                   // 则添加响应报文的首部字段
                 m_iv[0].iov_base = m_write_buf;
                 m_iv[0].iov_len = m_write_idx;
                 m_iv[1].iov_base = m_file_address;
@@ -649,8 +654,8 @@ bool http_conn::process_write(HTTP_CODE ret) {
                 bytes_to_send = m_write_idx + m_file_stat.st_size;
                 return true;
             }
-            else {
-                const char *ok_string = "<html><body></body></html>";
+            else {                                         // 如果请求的目标文件的大小等于 0
+                const char *ok_string = "<html><body></body></html>";       // 返回一个空的html
                 add_headers(strlen(ok_string));
                 if (!add_content(ok_string))
                     return false;
@@ -660,6 +665,7 @@ bool http_conn::process_write(HTTP_CODE ret) {
             return false;
     }
 
+    // 下面是请求失败的情况
     m_iv[0].iov_base = m_write_buf;
     m_iv[0].iov_len = m_write_idx;
     m_iv_count = 1;
@@ -683,6 +689,7 @@ void http_conn::process() {
     bool write_ret = process_write(read_ret);           // 当请求解析成功后，则把连接 socket 上的写事件加入到 epoll 中
     if (!write_ret)
         close_conn();
-        
+
+    // 向 epoll 实例注册该套接字上的写事件
     modfd(m_epollfd, m_sockfd, EPOLLOUT, m_TRIGMode);
 }

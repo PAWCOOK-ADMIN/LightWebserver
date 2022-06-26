@@ -112,12 +112,12 @@ void Log::write_log(int level, const char *format, ...)
         // 创建新的日志文件
         snprintf(tail, 16, "%d_%02d_%02d_", my_tm.tm_year + 1900, my_tm.tm_mon + 1, my_tm.tm_mday);
        
-        if (m_today != my_tm.tm_mday) {
+        if (m_today != my_tm.tm_mday) {         // 如果时间落后的话
             snprintf(new_log, 255, "%s%s%s", dir_name, tail, log_name);
             m_today = my_tm.tm_mday;
             m_count = 0;
         }
-        else
+        else                                    // 如果日志已达最大的话
             snprintf(new_log, 255, "%s%s%s.%lld", dir_name, tail, log_name, m_count / m_split_lines);
         
         // 打开新的日志文件

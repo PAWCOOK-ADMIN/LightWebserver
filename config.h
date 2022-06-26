@@ -41,7 +41,7 @@ public:
     // 是否关闭日志
     int close_log;
 
-    // 事件处理模型选择
+    // 事件处理模型选择, 默认是 proactor
     int actor_model;
 };
 

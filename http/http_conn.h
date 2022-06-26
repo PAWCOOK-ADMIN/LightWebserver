@@ -23,7 +23,7 @@
 
 #include "../lock/locker.h"
 #include "../CGImysql/sql_connection_pool.h"
-#include "../timer/lst_timer.h"
+#include "../timer/tw_timer.h"
 #include "../log/log.h"
 
 class http_conn {
@@ -108,8 +108,8 @@ private:
 public:
     static int m_epollfd;           // epoll 实例。所有的 http_conn 共用一个 epoll 实例
     static int m_user_count;        // 统计 TCP 连接数量
-    MYSQL *mysql;
-    int m_state;                    // 表明该连接套接字的需要进行的是读还是写，读为 0, 写为 1
+    MYSQL *mysql;                   // 数据库连接句柄
+    int m_state;                    // 表明连接池中的线程在 reactor 模式下，该连接套接字的需要进行的是读还是写，读为 0, 写为 1
 
 private:
     int m_sockfd;               // 连接的客户端 socket 句柄
@@ -128,7 +128,7 @@ private:
     CHECK_STATE m_check_state;          // 主状态机当前所处的状态
     METHOD m_method;                    // 请求方法
 
-    char m_real_file[FILENAME_LEN];
+    char m_real_file[FILENAME_LEN];         // 请求处理后，应该访问的文件名
 
     char *m_url;                            // 客户请求的目标文件的文件名
     char *m_version;                        // HTTP协议版本号，我们仅支持HTTP1.1
@@ -138,16 +138,16 @@ private:
 
     char* m_file_address;                   // 客户请求的目标文件被mmap到内存中的起始位置
     struct stat m_file_stat;                // 保存请求的文件的状态。通过它我们可以判断文件是否存在、是否为目录、是否可读，并获取文件大小等信息
-    struct iovec m_iv[2];                   // 将多个缓冲区的数据集中写到写缓冲区中 
+    struct iovec m_iv[2];                   // 将多个缓冲区的数据集中写到写缓冲区中，第 0 个参数保存响应报文的报文首部，第 1 个参数保存响应报文的报文主体（如果有的话，内存映射）
     int m_iv_count;                         // 表示集中写中的缓冲区的个数
 
     int cgi;                // 是否启用的 POST
-    char *m_string;         // 存储请求头数据
+    char *m_string;         // 存储请求报文主体中的数据
 
     char *doc_root;         // 网站根目录
 
     map<string, string> m_users;            // 用户名和密码(貌似没有被用到)
-    int m_TRIGMode;                         // 连接套接字的触发模式
+    int m_TRIGMode;                         // 连接套接字的触发模式，默认 LT
     int m_close_log;                        // 是否启用日志，, 0 表示不关闭（默认）
 
     char sql_user[100];

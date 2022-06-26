@@ -17,7 +17,7 @@
 
 const int MAX_FD = 65536;               // 最大文件描述符
 const int MAX_EVENT_NUMBER = 10000;     // epoll 监听的最大文件描述数
-const int TIMESLOT = 5;                 // 定时器的超时时间的最小单位
+const int TIMESLOT = 3;                 // 定时器的超时时间的最小单位, 注意和定时器的timeslot 同步起来
 
 class WebServer
 {
@@ -36,8 +36,8 @@ public:
     void eventListen();
     void eventLoop();
     void timer(int connfd, struct sockaddr_in client_address);
-    void adjust_timer(util_timer *timer);
-    void deal_timer(util_timer *timer, int sockfd);
+    void adjust_timer(tw_timer *timer);
+    void deal_timer(tw_timer *timer, int sockfd);
     bool dealclinetdata();
     bool dealwithsignal(bool& timeout, bool& stop_server);
     void dealwithread(int sockfd);
@@ -55,7 +55,7 @@ public:
     http_conn *users;               // 服务器中所有的客户端连接    
 
     //数据库相关
-    connection_pool *m_connPool;
+    connection_pool *m_connPool;    // 数据库连接池
     string m_user;                  // 登陆数据库的用户名
     string m_passWord;              // 登陆数据库的密码
     string m_databaseName;          // 登录的数据库名

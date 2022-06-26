@@ -48,7 +48,7 @@ public:
 class connectionRAII{
 public:
 	// 不直接调用获取和释放连接的接口，将其封装起来，通过 RAII 机制进行数据库连接的获取和释放。
-	connectionRAII(MYSQL **con, connection_pool *connPool);			// 双指针对 MYSQL *con 修改
+	connectionRAII(MYSQL **con, connection_pool *connPool);			// 该类的实例构造的同时，也获取了一个数据库连接
 	~connectionRAII();
 	
 private:

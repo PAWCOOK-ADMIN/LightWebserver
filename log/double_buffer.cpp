@@ -19,7 +19,9 @@ void double_buffer::init() {
 }
 
 void double_buffer::setfp(FILE *p) {
+    fd_mutex.lock();
     fp = p;
+    fd_mutex.unlock();
 }
 
 void *double_buffer::thread_work(void *arg) {
@@ -63,7 +65,6 @@ void double_buffer::d_buffer_write() {
         if (front_buffers.size() == 0)             // 如果前端缓冲区数组为空, 则等待 3 秒
             m_cond.timewait(m_mutex.get(), 3);
 
-
         // 把当前使用的缓冲区加入前端缓冲区数组
         front_buffers.push_back(cur);
         cur = new1;
@@ -82,8 +83,11 @@ void double_buffer::d_buffer_write() {
 		// 严重时引发性能问题(可用内存不足), 或程序崩溃(分配内存失败)
 		if (back_buffers.size() > 25) {
 			string s = "Error, too much logs\n";
+
+            fd_mutex.lock();
 			fputs(s.c_str(), fp);                  
-            
+            fd_mutex.unlock();
+
             for (int i=2; i<back_buffers.size(); i++)                            // 释放多余日志占用内存
                 delete back_buffers[i];
             
@@ -93,8 +97,10 @@ void double_buffer::d_buffer_write() {
         // 开始将后端缓冲区数组中的日志写入文件磁盘
         for (auto buffer : back_buffers) {
             for (string s: *buffer) {
+                fd_mutex.lock();
                 fputs(s.c_str(), fp);           // 写入磁盘
                 //fflush(fp);
+                fd_mutex.unlock();
             } 
 
             buffer->clear();            // 清空缓冲区

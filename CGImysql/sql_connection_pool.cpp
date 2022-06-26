@@ -41,7 +41,7 @@ void connection_pool::init(string url, string User, string PassWord, string DBNa
 			exit(1);
 		}
 
-		con = mysql_real_connect(con, url.c_str(), User.c_str(), PassWord.c_str(), DBName.c_str(), Port, nullptr, 0);			// 连接数据库
+		con = mysql_real_connect(con, url.c_str(), User.c_str(), PassWord.c_str(), DBName.c_str(), Port, nullptr, 0);		// 连接数据库
 
 		if (con == nullptr) {
 			LOG_ERROR("MySQL Error");

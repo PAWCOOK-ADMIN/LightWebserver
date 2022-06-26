@@ -14,7 +14,7 @@ Config::Config(){
     // listenfd 触发模式，默认 LT
     LISTENTrigmode = 0;
 
-    // connfd触发模式，默认 LT
+    // connfd触发模式，默认 LT，水平触发
     CONNTrigmode = 0;
 
     // 优雅地关闭链接，默认不使用

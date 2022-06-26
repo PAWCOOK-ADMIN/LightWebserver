@@ -130,26 +130,26 @@ void threadpool<T>::run() {
             if (0 == request->m_state) {            // 如果是读数据的话
                 if (request->read_once()) {
                     request->improv = 1;
-                    connectionRAII mysqlcon(&request->mysql, m_connPool);
+                    connectionRAII mysqlcon(&request->mysql, m_connPool);           // 为 tcp 连接申请一个数据库连接, 注意connectRAII 定义的位置，当线程处理完本次连接请求时，连接将会被释放
                     request->process();             // 调用请求中的处理函数，处理请求
                 }
                 else {                                          // 如果读数据失败
-                    request->improv = 1;
-                    request->timer_flag = 1;
+                    request->improv = 1;                                // 子线程读数据完毕
+                    request->timer_flag = 1;                            // 子线程读数据失败
                 }
             }
             else {                                  // 如果是写数据的话
                 if (request->write())
                     request->improv = 1;
                 else {                                          // 如果写数据失败
-                    request->improv = 1;
-                    request->timer_flag = 1;
+                    request->improv = 1;                                // 子线程写数据完毕
+                    request->timer_flag = 1;                            // 子线程写数据失败
                 }
             }
         }
         else {                              // 如果是 proactor 模式的话
-            connectionRAII mysqlcon(&request->mysql, m_connPool);
-            request->process();                     // 调用请求中的处理函数，处理请求
+            connectionRAII mysqlcon(&request->mysql, m_connPool);               // 为 tcp 连接申请一个数据库连接
+            request->process();                                                 // 调用请求中的处理函数，处理请求
         }
     }
 }
